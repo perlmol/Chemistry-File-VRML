@@ -5,22 +5,36 @@ $VERSION = '0.10';
 use strict;
 use warnings;
 use base qw(Chemistry::File);
+use Chemistry::Mol;
 use POSIX qw(acos);
 
 Chemistry::Mol->register_format(vrml => __PACKAGE__);
+
+my %OPTS = (
+    center => 'centerAtoms',
+    color  => 'setColor',
+    style  => 'setStyle',
+    stick_radius => 'setStickRadius',
+    ball_radius  => 'setBallRadius',
+    compression  => 'setCompression',
+);
 
 sub write_mol {
     my ($self, $fh, $mol, %opts) = @_;
     my $vrml = Chemistry::File::VRML::PDB2VRML->new($fh);
     $vrml->add_mol($mol);
+    while (my ($key, $val) = each %opts) {
+        if (my $method = $OPTS{$key}) {
+            $vrml->$method($val);
+        }
+    }
     $vrml->printVRML;
 }
 
 package Chemistry::File::VRML::PDB2VRML;
 
-#	Global variables
-my $Compression = 0;    # don't print leading spaces
-
+# Defaults variables
+my $Compression = 0;
 my $Style = 'Wireframe';    # default display style
 my $Color = 'byAtom';       # default color
 my $PI    = 3.14159265;
@@ -28,9 +42,9 @@ my $PI    = 3.14159265;
 my $RadiusBNS   = 0.2;
 my $RadiusStick = 0.15;
 
-#	Some global tables
+# Some global tables
 
-#	color indizes per atom type
+# color indizes per atom type
 my %AtomColors = qw(
   '' 5  H  3  HE 5  LI 5  BE 5  B  1  C  4  N  1  O  2  F  7  NE 5  NA 5
   MG 5  AL 5  SI 5  P  6  S  0  CL 7  AR 5  K  5  CA 5  SC 5  TI 5  V  5
@@ -43,7 +57,7 @@ my %AtomColors = qw(
   CM 5  BK 5  CF 5  XX 5  FM 5  MD 5  NO 5  LW 5
 );
 
-#	VDW radius per atom type
+# VDW radius per atom type
 my %VDWRadius = qw(
   '' 1.00  H  1.08  HE 1.00  LI 1.00  BE 1.00  B  1.00  C  1.54  N  1.48
   O  1.36  F  1.30  NE 1.00  NA 2.30  MG 1.00  AL 2.86  SI 2.10  P  1.75
@@ -60,7 +74,7 @@ my %VDWRadius = qw(
   CM 1     BK 1     CF 1     XX 1     FM 1     MD 1     NO 1     LW 1
 );
 
-# 	atom radius per atom type
+#  atom radius per atom type
 my %AtomRadius = qw(
   '' 0.00  H  0.37  HE 0.70  LI 1.23  BE 0.89  B  0.80  C  0.77  N  0.74
   O  0.74  F  0.72  NE 0.70  NA 1.57  MG 1.36  AL 1.25  SI 1.17  P  1.10
@@ -77,11 +91,11 @@ my %AtomRadius = qw(
   CM 1.00  BK 1.00  CF 1.00  XX 1.00  FM 1.00  MD 1.00  NO 1.00  LW 1.00
 );
 
-#		  S	      N	       O	 H
+#    S       N        O  H
 my (@RGBColors) =
   ('1 1 0', '0 0 1', '1 0 0', '1 1 1', '.5 .5 .5', '1 0 1', '1 .5 0', '0 1 0');
 
-#		  C	      rest     P	 Hal
+#    C       rest     P  Hal
 
 my (%ColorNames) = (
     'yellow' => 0,
@@ -111,6 +125,9 @@ sub new {
         indent     => 0,
         DefUse     => {},       # stores shared instances
         BLT        => {},       # bond lookup table for CONECT list
+        RadiusStick => $RadiusStick,
+        Compression => $Compression,
+        RadiusBNS   => $RadiusBNS,
     }, $class;
 
     return $this;
@@ -144,13 +161,13 @@ sub add_mol {
 }
 ###########################################################################
 #
-#	Read PDB file
-#	Old atoms and bonds won't be deleted, allowing to
-#	merge several PDB file.
-#	Syntax: $object->readPDB($fileName);
-#	Diag:	returns undef on error
+# Read PDB file
+# Old atoms and bonds won't be deleted, allowing to
+# merge several PDB file.
+# Syntax: $object->readPDB($fileName);
+# Diag: returns undef on error
 #
-#         1	    2	      3	        4	  5	    6	      7
+#         1     2       3         4   5     6       7
 #1234567890123456789012345678901234567890123456789012345678901234567890123456789
 #TOM      5  O5*   A A   1     -16.851  -5.543  74.981  1.00 55.62      3CRO 148
 ###########################################################################
@@ -216,16 +233,21 @@ sub readPDB {
 }
 
 ###########################################################################
-sub setStyle       { my $this = shift; $this->{'style'} = shift; }
+sub setStyle { 
+    my ($this, $style) = @_;
+    $style = lc $style;
+    $style =~ s/[_ ]//g;
+    $this->{'style'} = $style; 
+}
 sub setColor       { my $this = shift; $this->{'color'} = shift; }
-sub setStickRadius { my $this = shift; $RadiusStick     = shift; }
-sub setBallRadius  { my $this = shift; $RadiusBNS       = shift; }
-sub setCompression { my $this = shift; $Compression     = shift; }
+sub setStickRadius { my $this = shift; $this->{RadiusStick}  = shift; }
+sub setBallRadius  { my $this = shift; $this->{RadiusBNS}    = shift; }
+sub setCompression { my $this = shift; $this->{Compression}  = shift; }
 
 ###########################################################################
 #
-#	Center all atoms
-#	Syntax:	$object->centerAtoms();
+# Center all atoms
+# Syntax: $object->centerAtoms();
 #
 ###########################################################################
 sub centerAtoms {
@@ -251,8 +273,8 @@ sub centerAtoms {
 
 ###########################################################################
 #
-#	Generate list of lines (cylinders) and points.
-#	Syntax: $object->_genDisplay();
+# Generate list of lines (cylinders) and points.
+# Syntax: $object->_genDisplay();
 #
 ###########################################################################
 sub _genDisplay {
@@ -327,8 +349,8 @@ sub _genDisplay {
 
 ###########################################################################
 #
-#	Optimize the wireframe representation.
-#	Create longer line strips instead of single lines.
+# Optimize the wireframe representation.
+# Create longer line strips instead of single lines.
 #
 ###########################################################################
 sub _genLineSets {
@@ -365,7 +387,7 @@ sub _genLineSets {
 
 ###########################################################################
 #
-#	print VRML SceneGraph
+# print VRML SceneGraph
 #
 ###########################################################################
 sub printVRML {
@@ -378,16 +400,16 @@ sub printVRML {
     $this->_genDisplay();
 
     $this->_genLineSets(), $this->_printWire()
-      if ($this->{'style'} =~ /Wire/);
+      if ($this->{'style'} =~ /wire/);
     $this->_printAtoms()
-      if ($this->{'style'} =~ /(Ball|Stick|CPK)/);
+      if ($this->{'style'} =~ /(ball|stick|cpk)/);
 
     $this->_printTail();
 }
 
 ###########################################################################
 #
-#	print VRML header
+# print VRML header
 #
 ###########################################################################
 sub _printHead {
@@ -399,7 +421,7 @@ sub _printHead {
 
 Transform {
     children [
-	NavigationInfo { type "EXAMINE" }
+        NavigationInfo { type "EXAMINE" }
 EOT
 
     $this->{'indent'} = 2;
@@ -570,7 +592,7 @@ sub _printAtom {
     $this->_printLine('children [');
     $this->{'indent'}++;
     $this->_printAtomShape($atom);
-    if ($this->{'style'} =~ /Stick/) {
+    if ($this->{'style'} =~ /stick/) {
         my $point = $atom->{'point'};
         foreach (@{$point->{'lines'}}) { $this->_printBond($_); }
     }
@@ -638,9 +660,9 @@ sub _printAtomGeometry {
         return;
     }
 
-    my $r = $RadiusStick;
-    $r = $RadiusBNS * $atom->{'radius'} if ($this->{'style'} =~ /Ball/);
-    $r = $atom->{'radius'} if ($this->{'style'} =~ /CPK/);
+    my $r = $this->{RadiusStick};
+    $r = $this->{RadiusBNS} * $atom->{'radius'} if ($this->{'style'} =~ /ball/);
+    $r = $atom->{'radius'} if ($this->{'style'} =~ /cpk/);
     $this->_printLine("geometry DEF ATOMGEO_$l Sphere { radius $r }");
 
     $this->{'DefUse'}->{"AtomGeo$l"} = 1;
@@ -705,7 +727,7 @@ sub _printBondGeometry {
     }
 
     $this->_printLine(
-        "geometry DEF BONDGEO Cylinder { radius $RadiusStick top FALSE bottom FALSE}"
+        "geometry DEF BONDGEO Cylinder { radius $this->{RadiusStick} top FALSE bottom FALSE}"
     );
 
     $this->{'DefUse'}->{'BondGeo'} = 1;
@@ -713,7 +735,7 @@ sub _printBondGeometry {
 
 ###########################################################################
 #
-#	print VRML tail
+# print VRML tail
 #
 ###########################################################################
 sub _printTail {
@@ -731,7 +753,7 @@ sub _printLine {
     my $str  = shift;
     my $fh = $this->{fh};
 
-    if ($Compression) { print $fh "$str\n"; }
+    if ($this->{Compression}) { print $fh "$str\n"; }
     else {
         my $i = "\t" x int($this->{'indent'} >> 1);
         $i .= '    ' if ($this->{'indent'} & 0x1);
@@ -741,8 +763,8 @@ sub _printLine {
 
 ###########################################################################
 #
-#	Calculate bond transformation parameters
-#	Syntax: @geometry = _calcBond(\%atom1, \%atom2);
+# Calculate bond transformation parameters
+# Syntax: @geometry = _calcBond(\%atom1, \%atom2);
 #
 ###########################################################################
 sub _calcBond {
@@ -774,7 +796,7 @@ sub _calcBond {
 
 ###########################################################################
 #
-#	Generate connectivities
+# Generate connectivities
 #
 ###########################################################################
 sub genBonds {
@@ -860,149 +882,111 @@ sub _atomToGrid {
 }
 
 ###########################################################################
+
 1;
+
 __END__
 
 =head1 NAME
 
-PDB2VRML - PDB to VRML converter.
+Chemistry::File::VRML - Generate VRML models for molecules
 
 =head1 SYNOPSIS
 
-  use PDB2VRML;
+    use Chemistry::File::PDB;
+    use Chemistry::File::VRML;
+    use Chemistry::Bond::Find 'find_bonds';
 
-  $pdb = PDB2VRML->new();
-
-  $pdb->readPDB( 'filename' );
-  $pdb->centerAtom();
-  $pdb->genBonds();
-  $pdb->setStyle( 'BallAndStick' );
-  $pdb->setColor( 'byAtom' );
-  $pdb->printVRML();
+    my $mol = Chemistry::Mol->read('test.pdb');
+    find_bonds($mol, orders => 1);
+    $mol->write('test.wrl', format => 'vrml', 
+        center => 1,
+        style  => 'ballAndWire',
+        color  => 'byAtom',
+    );
 
 =head1 DESCRIPTION
 
-The PDB2VRML class allows the creation of objects which can
-read molecular structures stored in the PDB format. It actually
-reads ATOM, HETATM, and CONECT records. The object can create
-additional bonds based on a minimum distance criteria. The final
-goal is to write a representation of the molecular structure
-in the VRML format.
+This module generates a VRML (Virtual Reality Modeling Language) representation
+of a molecule, which can then be visualized with any VRML viewer. This is a
+PerlMol file I/O plugin, and registers the 'vrml' format with
+L<Chemistry::Mol>. Note however that this file plugin is write-only; there's no
+way of reading a VRML file back into a molecule.
 
-=head2 FUNCTIONS
+This module is a modification of PDB2VRML by Horst Vollhardt, adapted to the
+L<Chemistry::File> interface.
+
+=head2 OPTIONS
+
+The following options may be passed to $mol->write.
 
 =over
 
-=item B<new()>
+=item B<center>
 
-Creates a new and empty converter object.
+If true, shift the molecules center of geometry into the origin of the
+coordinate system. Note: this only affects the output; it does not affect
+the coordinates of the atoms in the original Chemistry::Mol object.
 
-  $pdb1 = PDB2VRML->new();
-  $pdb2 = $pdb1->new();
-
-=item B<readPDB()>
-
-Reads all atoms and connects from the given PDB file. The subroutine
-returns 'undef' on error. Currently only the ATOM, HETATM, and CONECT
-records are read.
-
-  $pdb->readPDB( 'fileName' );
-
-=item B<printVRML()>
-
-Prints the molecular structure in the current style in the VRML
-format on <stdout>.
-
-  $pdb->printVRML();
-
-=item B<centerAtoms()>
-
-Shift the molecules center of geometry into the origin of the
-coordinate system.
-
-  $pdb->centerAtoms();
-
-=item B<genBonds()>
-
-Create additional bonds between the atoms. A maximum distance
-for the 2 atom types of a potentially connected atom pair is computed.
-If the actual distance is shorter, a new bond is created. The
-algorithm applied distributes the atoms over a 3D grid. Therefore,
-the order of the generated bonds is not very deterministic.
-
-  $pdb->genBonds();
-
-=item B<setStyle()>
+=item B<style>
 
 Sets the style for the VRML representation of the molecular structure.
 Default is 'Wireframe'. Currently supported styles are:
 
-	Wireframe, BallAndWire,
-	Stick, BallAndStick,
-	CPK
+    Wireframe, BallAndWire,
+    Stick, BallAndStick,
+    CPK
 
-  $pdb->setStyle( 'Wireframe' );
-
-=item B<setColor()>
+=item B<color>
 
 Set the overall color of the molecular structure. If the color is
 set to 'byAtom', the color the for atoms and bonds is defined by
 the atom type. Default is 'byAtom'. Currently supported colors are:
 
-	byAtom,
-	yellow, blue, red,
-	green, white, brown,
-	grey, purple
+    byAtom,
+    yellow, blue, red,
+    green, white, brown,
+    grey, purple
 
-  $pdb->setColor( 'blue' );
-
-=item B<setStickRadius()>
+=item B<stick_radius>
 
 Defines the radius in Angstrom for the cylinders in the 'Stick'
 and 'BallAndStick' style. Default is 0.15 .
 
-  $pdb->setStickRadius( 0.15 );
-
-=item B<setBallRadius()>
+=item B<ball_radius>
 
 Defines the factor which is multiplied with the VDW radius for
 the spheres in the 'BallAndWire' and 'BallAndStick' style. Default
 is 0.2 .
 
-  $pdb->setBallRadius( 0.2 );
-
-=item B<setCompression()>
+=item B<compression>
 
 Turns on/off compression of the output. If turned on, all leading
 whitespaces are removed. This produces a less readable but approx.
 20% smaller output, the speed is increased by 10% as well.
 
-   $pdb->setCompression( 1 );
-
 =back
 
 =head1 AUTHOR
 
-Horst Vollhardt, horstv@yahoo.com
+PDB2VRML originally by Horst Vollhardt, horstv@yahoo.com, 1998.
+Modified and adapted as Chemistry::File::VRML by Ivan Tubert-Brohman,
+itub@cpan.org, 2005.
 
 =head1 COPYRIGHT
 
-Copyright (c) 1998 by Horst Vollhardt. All rights reserved.
-This program is free software; you can redistribute it and/or
-modify it under the same terms as Perl itself.
+PDB2VRML Copyright (c) 1998 by Horst Vollhardt. All rights reserved.
+Chemistry::File::VRML modifications Copyright (c) 2005 by Ivan Tubert-Brohman.
+All rights reserved.  This program is free software; you can redistribute it
+and/or modify it under the same terms as Perl itself.
 
-=head1 SOURCES
-
-The most recent version can be found at:
-
-  http://reality.sgi.com/horstv_basel/pdb2vrml/
 
 =head1 SEE ALSO
 
-See http://www.vrml.org/ for a description of the VRML format.
+PDB2VRML found at 
+http://www.realitydiluted.com/mirrors/reality.sgi.com/horstv_basel/pdb2vrml/
+
+PerlMol project at http://www.perlmol.org/
 
 =cut
-
-
-1;
 

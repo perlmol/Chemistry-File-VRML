@@ -9,5 +9,14 @@ use Chemistry::Bond::Find 'find_bonds';
 use diagnostics;
 
 my $mol = Chemistry::Mol->read('test.pdb');
-find_bonds($mol, orders => 1);
-print $mol->print(format => 'vrml', centerAtoms => 1);
+#find_bonds($mol, orders => 1);
+print $mol->print(format => 'vrml', 
+    center => 1,
+    style  => 'ballAndWire',
+    color  => 'byAtom',
+);
+$mol->write('xyz.wrl', format => 'vrml', 
+    center => 1,
+    style  => 'ballAndWire',
+    color  => 'byAtom',
+);
